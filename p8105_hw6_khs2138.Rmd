@@ -164,33 +164,6 @@ boot_straps
 
 **Apply logistic regression to bootstraps and extract desired estimates**
 
-```{r, eval = FALSE,  ignore = TRUE}
-bootstrap_results = 
-  boot_straps |> 
-  mutate(
-    models = map(strap_sample, \(df) lm(tmax ~ tmin + prcp, data = df) ),
-    results = map(models, broom::tidy)) |> 
-  select(-strap_sample, -models) |> 
-  unnest(results) 
-
-bootstrap_results 
-```
-
-
-```{r weather_lm, eval = FALSE, ignore = TRUE}
-lm(tmax ~ tmin + prcp, data = weather_df) |>
-  broom::glance() |>
-  select(r.squared) 
-
-lm(tmax ~ tmin + prcp, data = weather_df) |>
-  broom::tidy() |>
-  mutate(beta_prod = (estimate[2] * estimate[3])) |>
-  mutate(log_beta = log(beta_prod)) |>
-  select(log_beta)
-  
-```
-
-
 ```{r bootstrap_model}
 bootstrap_lm = 
   boot_straps |> 
@@ -229,6 +202,32 @@ bootstrap_betas |>
 ```
 
 
+## Todo: Update to 5000 and add CI 
 
+# Problem 3 
+
+```{r import_birthweight}
+birth_df = read_csv('./data/birthweight.csv') |>
+  janitor::clean_names() |>
+  mutate(babysex = recode(babysex, "2" = "Female", "1" = "Male"),
+         babysex = factor(babysex, ordered = TRUE),
+         frace = recode(frace, "1" = "White", "2" = "Black", "3" = "Asian", 
+                        "4" = "Puerto Rican", "8" = "Other", "9" = "Unknown"),
+         frace = factor(frace, ordered = TRUE),
+         mrace = recode(mrace, "1" = "White", "2" = "Black", "3" = "Asian", 
+                        "4" = "Puerto Rican", "8" = "Other"),
+         mrace = factor(mrace, ordered = TRUE)) 
+
+
+
+
+
+
+
+birth_df |>
+  skimr::skim()
+# mutate()
+ 
+```
 
 
