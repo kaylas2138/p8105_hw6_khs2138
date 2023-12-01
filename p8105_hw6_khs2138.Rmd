@@ -147,7 +147,7 @@ The boostrap is helpful when you'd like to perform inference for a parameter / v
 
 Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_1 * \hat{\beta}_2)$. 
 
-
+**Generate bootstrap samples**
 ```{r}
 boot_sample = function(df) {
   sample_frac(df, replace = TRUE)
@@ -162,8 +162,9 @@ boot_straps =
 boot_straps
 ```
 
+**Apply logistic regression to bootstraps and extract desired estimates**
 
-```{r}
+```{r, eval = FALSE,  ignore = TRUE}
 bootstrap_results = 
   boot_straps |> 
   mutate(
@@ -176,7 +177,7 @@ bootstrap_results
 ```
 
 
-```{r weather_lm}
+```{r weather_lm, eval = FALSE, ignore = TRUE}
 lm(tmax ~ tmin + prcp, data = weather_df) |>
   broom::glance() |>
   select(r.squared) 
@@ -188,6 +189,45 @@ lm(tmax ~ tmin + prcp, data = weather_df) |>
   select(log_beta)
   
 ```
+
+
+```{r bootstrap_model}
+bootstrap_lm = 
+  boot_straps |> 
+  mutate(
+    models = map(strap_sample, \(df) lm(tmax ~ tmin + prcp, data = df)))
+
+bootstrap_betas = bootstrap_lm |>
+  mutate(results = map(models, broom::tidy)) |> 
+  select(-strap_sample, -models) |> 
+  unnest(results) |>
+  group_by(strap_number) |>
+  summarize(beta_prod = estimate[term == "tmin"] * estimate[term == "prcp"]) |>
+  mutate(log_beta_prod = log(beta_prod)) |>
+  select(-beta_prod)
+
+bootstrap_rsquared = bootstrap_lm |>
+  mutate(results = map(models, broom::glance)) |> 
+  select(-strap_sample, -models) |> 
+  unnest(results) |>
+  select(strap_number, r.squared)
+```
+
+
+**Plot estimates**
+```{r plot_rsquared}
+bootstrap_rsquared |>
+  ggplot(aes(x = r.squared)) + geom_histogram()
+  
+```
+
+
+```{r plot_betas}
+bootstrap_betas |>
+  ggplot(aes(x = log_beta_prod)) + geom_histogram()
+  
+```
+
 
 
 
