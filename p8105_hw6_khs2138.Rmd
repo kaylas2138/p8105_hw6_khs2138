@@ -30,6 +30,8 @@ options(
 
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
+
+set.seed(1)
 ```
 
 # Problem 1
@@ -86,11 +88,9 @@ city_logistic = homicide_data |>
   nest(data = -city_state) |>
   mutate(glm = map(data, \(data) glm(solved ~ victim_sex + victim_race + victim_age,  
                                      data = data) |>
-                     broom::tidy(conf.int=TRUE))) |>
+                     broom::tidy(conf.int=TRUE, exp = TRUE))) |>
   unnest(glm) |>
-  mutate(OR = exp(estimate),
-         conf.low = exp(conf.low),
-         con.high = exp(conf.high)) |>
+  mutate(OR = estimate) |>
   select(city_state, term, OR, p.value, conf.low, conf.high) |>
   filter(term %in% c("victim_sex","victim_sexMale","victim_sexFemale"))
 
@@ -98,6 +98,7 @@ city_logistic |>
   knitr::kable()
 
 ```
+
 
 
 ```{r, eval = FALSE}
@@ -116,4 +117,78 @@ city_logistic |>
   geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
   theme(axis.text.x = element_text(angle = 60, hjust = 1))
 ```
+
+There are only a few cities, including Albuquerque and Stockholm, where homocides are more likely to be solved for men than women. In most cities, the odds ratio are in favor of homicides being solved for female victims. 
+
+
+
+# Problem 2
+For this problem, we'll use the Central Park weather data similar to data we've seen elsewhere. The code chunk below (adapted from the course website) will download these data. 
+
+```{r weather_data}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2022-01-01",
+    date_max = "2022-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+
+The boostrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework. We'll focus on a simple linear regression with `tmax` as the response with `tmin` and `prcp` as the predictors, and are interested in the distribution of two quantities estimated from these data:
+
+
+* $\hat{r}^2$
+* $\log(\hat{\beta}_1 * \hat{\beta}_2)$
+
+Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_1 * \hat{\beta}_2)$. 
+
+
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+
+boot_straps = 
+  tibble(strap_number = 1:1000) |> 
+  mutate(
+    strap_sample = map(strap_number, \(i) boot_sample(df = weather_df))
+  )
+
+boot_straps
+```
+
+
+```{r}
+bootstrap_results = 
+  boot_straps |> 
+  mutate(
+    models = map(strap_sample, \(df) lm(tmax ~ tmin + prcp, data = df) ),
+    results = map(models, broom::tidy)) |> 
+  select(-strap_sample, -models) |> 
+  unnest(results) 
+
+bootstrap_results 
+```
+
+
+```{r weather_lm}
+lm(tmax ~ tmin + prcp, data = weather_df) |>
+  broom::glance() |>
+  select(r.squared) 
+
+lm(tmax ~ tmin + prcp, data = weather_df) |>
+  broom::tidy() |>
+  mutate(beta_prod = (estimate[2] * estimate[3])) |>
+  mutate(log_beta = log(beta_prod)) |>
+  select(log_beta)
+  
+```
+
+
+
 
