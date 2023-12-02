@@ -20,6 +20,8 @@ library(p8105.datasets)
 library(tidyverse)
 library(ggridges)
 library(purrr)
+library(modelr)
+library(mgcv)
 
 theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
@@ -148,7 +150,7 @@ The boostrap is helpful when you'd like to perform inference for a parameter / v
 Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_1 * \hat{\beta}_2)$. 
 
 **Generate bootstrap samples**
-```{r}
+```{r bootstrap_samples}
 boot_sample = function(df) {
   sample_frac(df, replace = TRUE)
 }
@@ -206,6 +208,8 @@ bootstrap_betas |>
 
 # Problem 3 
 
+## Load and clean birthweight data 
+
 ```{r import_birthweight}
 birth_df = read_csv('./data/birthweight.csv') |>
   janitor::clean_names() |>
@@ -218,16 +222,100 @@ birth_df = read_csv('./data/birthweight.csv') |>
                         "4" = "Puerto Rican", "8" = "Other"),
          mrace = factor(mrace, ordered = TRUE)) 
 
+```
 
+## Build and plot regression model 
 
+**Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.**
 
-
+```{r birthweigh_regrssion}
+fit = lm(bwt ~ bhead + blength + babysex, data = birth_df)
 
 
 birth_df |>
-  skimr::skim()
-# mutate()
- 
+  modelr::add_predictions(fit) |>
+  rename(pred_bwt = pred) |>
+  modelr::add_residuals(fit) |>
+  rename(resid_bwt = resid) |>
+  ggplot(aes(x = pred_bwt, y = resid_bwt)) +
+  geom_point()
+
+```
+
+## Model comparison
+Compare your model to two others:
+
+* One using length at birth and gestational age as predictors (main effects only)
+* One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+
+```{r eval = FALSE}
+fit_1 = lm(bwt ~ gaweeks + blength, data = birth_df)
+
+birth_df |>
+  modelr::add_predictions(fit_1) |>
+  rename(pred_bwt = pred) |>
+  modelr::add_residuals(fit_1) |>
+  rename(resid_bwt = resid) |>
+  ggplot(aes(x = pred_bwt, y = resid_bwt)) +
+  geom_point()
+
+fit_2 = lm(bwt ~ bhead * blength * babysex, data = birth_df)
+birth_df |>
+  modelr::add_predictions(fit_2) |>
+  rename(pred_bwt = pred) |>
+  modelr::add_residuals(fit_2) |>
+  rename(resid_bwt = resid) |>
+  ggplot(aes(x = pred_bwt, y = resid_bwt)) +
+  geom_point()
+
+```
+
+```{r model_compare}
+fit = lm(bwt ~ bhead + blength + babysex, data = birth_df)
+fit_1 = lm(bwt ~ gaweeks + blength, data = birth_df)
+fit_2 = lm(bwt ~ bhead * blength * babysex, data = birth_df)
+
+
+birth_df |>
+  gather_predictions(fit, fit_1, fit_2) |>
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point() + 
+  geom_line(aes(y = pred), color = "red") + 
+  facet_wrap(~model)
+```
+
+
+```{r model_compare_CV}
+birth_cv =
+  crossv_mc(birth_df, 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+birth_cv = birth_cv |>
+  mutate(
+    model = map(train, \(df) fit),
+    model_1 = map(train, \(df) fit_1),
+    model_2 = map(train, \(df) fit_2)) |>
+  mutate(
+    rmse_mod = map2_dbl(model, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_mod1 = map2_dbl(model_1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_mod2 = map2_dbl(model_2, test, \(mod, df) rmse(model = mod, data = df))
+  )
+birth_cv
+```
+
+```{r}
+birth_cv |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
 
