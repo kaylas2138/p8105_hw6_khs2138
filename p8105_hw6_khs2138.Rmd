@@ -125,6 +125,8 @@ There are only a few cities, including Albuquerque and Stockholm, where homocide
 
 
 # Problem 2
+
+## Load and clean weather data
 For this problem, we'll use the Central Park weather data similar to data we've seen elsewhere. The code chunk below (adapted from the course website) will download these data. 
 
 ```{r weather_data}
@@ -141,6 +143,7 @@ weather_df =
   select(name, id, everything())
 ```
 
+## Bootstrap samples
 The boostrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework. We'll focus on a simple linear regression with `tmax` as the response with `tmin` and `prcp` as the predictors, and are interested in the distribution of two quantities estimated from these data:
 
 
@@ -156,13 +159,15 @@ boot_sample = function(df) {
 }
 
 boot_straps = 
-  tibble(strap_number = 1:1000) |> 
+  tibble(strap_number = 1:5000) |> 
   mutate(
     strap_sample = map(strap_number, \(i) boot_sample(df = weather_df))
   )
 
 boot_straps
 ```
+
+## Generate predictions
 
 **Apply logistic regression to bootstraps and extract desired estimates**
 
@@ -189,22 +194,30 @@ bootstrap_rsquared = bootstrap_lm |>
 ```
 
 
+## Plot predictions
+
 **Plot estimates**
 ```{r plot_rsquared}
+quantiles_r_squared <- quantile(bootstrap_rsquared$r.squared, c(0.025, 0.975))
+
 bootstrap_rsquared |>
-  ggplot(aes(x = r.squared)) + geom_histogram()
-  
+  ggplot(aes(x = r.squared)) + geom_histogram() + 
+  geom_vline(xintercept = quantiles_r_squared, linetype = "dashed", color = "red") +
+  annotate("text", x = quantiles_r_squared[1], y = 20, label = "2.5%", color = "red", hjust = -0.5) +
+  annotate("text", x = quantiles_r_squared[2], y = 20, label = "97.5%", color = "red", hjust = 1.5)
 ```
 
 
 ```{r plot_betas}
+quantiles_log_beta_prod <- quantile(bootstrap_betas$log_beta_prod, c(0.025, 0.975), na.rm = TRUE)
+
 bootstrap_betas |>
-  ggplot(aes(x = log_beta_prod)) + geom_histogram()
-  
+  ggplot(aes(x = log_beta_prod)) + geom_histogram() +
+  geom_vline(xintercept = quantiles_log_beta_prod, linetype = "dashed", color = "red") +
+  annotate("text", x = quantiles_log_beta_prod[1], y = 20, label = "2.5%", color = "red", hjust = -0.5) +
+  annotate("text", x = quantiles_log_beta_prod[2], y = 20, label = "97.5%", color = "red", hjust = 1.5)
 ```
 
-
-## Todo: Update to 5000 and add CI 
 
 # Problem 3 
 
@@ -228,6 +241,8 @@ birth_df = read_csv('./data/birthweight.csv') |>
 
 **Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.**
 
+The model below looks at factors of the baby, including the ehad circumference, length, and sex, to predict birthweight. 
+
 ```{r birthweigh_regrssion}
 fit = lm(bwt ~ bhead + blength + babysex, data = birth_df)
 
@@ -242,42 +257,20 @@ birth_df |>
 
 ```
 
+
 ## Model comparison
-Compare your model to two others:
+**Compare your model to two others:**
 
-* One using length at birth and gestational age as predictors (main effects only)
-* One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
-
-```{r eval = FALSE}
-fit_1 = lm(bwt ~ gaweeks + blength, data = birth_df)
-
-birth_df |>
-  modelr::add_predictions(fit_1) |>
-  rename(pred_bwt = pred) |>
-  modelr::add_residuals(fit_1) |>
-  rename(resid_bwt = resid) |>
-  ggplot(aes(x = pred_bwt, y = resid_bwt)) +
-  geom_point()
-
-fit_2 = lm(bwt ~ bhead * blength * babysex, data = birth_df)
-birth_df |>
-  modelr::add_predictions(fit_2) |>
-  rename(pred_bwt = pred) |>
-  modelr::add_residuals(fit_2) |>
-  rename(resid_bwt = resid) |>
-  ggplot(aes(x = pred_bwt, y = resid_bwt)) +
-  geom_point()
-
-```
+* **One using length at birth and gestational age as predictors (main effects only)**
+* **One using head circumference, length, sex, and all interactions (including the three-way interaction) between these**
 
 ```{r model_compare}
 fit = lm(bwt ~ bhead + blength + babysex, data = birth_df)
-fit_1 = lm(bwt ~ gaweeks + blength, data = birth_df)
-fit_2 = lm(bwt ~ bhead * blength * babysex, data = birth_df)
-
+compare_1 = lm(bwt ~ gaweeks + blength, data = birth_df)
+compare_2 = lm(bwt ~ bhead * blength * babysex, data = birth_df)
 
 birth_df |>
-  gather_predictions(fit, fit_1, fit_2) |>
+  gather_predictions(fit, compare_1, compare_2) |>
   mutate(model = fct_inorder(model)) |> 
   ggplot(aes(x = blength, y = bwt)) + 
   geom_point() + 
@@ -285,6 +278,7 @@ birth_df |>
   facet_wrap(~model)
 ```
 
+**Make this comparison in terms of the cross-validated prediction error; use crossv_mc and functions in purrr as appropriate.**
 
 ```{r model_compare_CV}
 birth_cv =
@@ -296,17 +290,17 @@ birth_cv =
 birth_cv = birth_cv |>
   mutate(
     model = map(train, \(df) fit),
-    model_1 = map(train, \(df) fit_1),
-    model_2 = map(train, \(df) fit_2)) |>
+    model_1 = map(train, \(df) compare_1),
+    model_2 = map(train, \(df) compare_2)) |>
   mutate(
     rmse_mod = map2_dbl(model, test, \(mod, df) rmse(model = mod, data = df)),
     rmse_mod1 = map2_dbl(model_1, test, \(mod, df) rmse(model = mod, data = df)),
     rmse_mod2 = map2_dbl(model_2, test, \(mod, df) rmse(model = mod, data = df))
   )
-birth_cv
+#birth_cv
 ```
 
-```{r}
+```{r model_compare_plot}
 birth_cv |> 
   select(starts_with("rmse")) |> 
   pivot_longer(
@@ -318,4 +312,4 @@ birth_cv |>
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
-
+Using birth length and gestational age main effects only produces the poorest performance. The performance for my linear model incorporating head circumference, length, and sex performs similarly to the comparison model that looks at interaction between head circumference, length, and sex. 
